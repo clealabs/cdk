@@ -2,8 +2,12 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/xx.md>
 
+use std::path::Path;
+
 use cairo_air::verifier::{verify_cairo, CairoVerificationError};
 use cairo_air::{CairoProof, PreProcessedTraceVariant};
+use cairo_lang_executable::executable::{EntryPointKind, Executable};
+use cairo_vm::types::program::Program;
 use serde::{Deserialize, Serialize};
 // use starknet_types_core::felt::Felt;
 use stwo_cairo_prover::stwo_prover::core::fri::FriConfig;
@@ -17,6 +21,7 @@ use super::nut00::Witness;
 use super::{Conditions, Nut10Secret, Proof};
 
 pub mod serde_cairo_witness;
+pub mod utils;
 
 /// Nutxx Error
 #[derive(Debug, Error)]
@@ -151,13 +156,24 @@ mod tests {
         //     num_sigs_refund: None,
         // };
 
+        // getting the program from the example.executable.json file
+        let executable_json = include_str!("example_executable.json");
+        let executable: Executable =
+            serde_json::from_str(executable_json).expect("Failed to parse executable");
+
+        let (program, _hints) = utils::program_and_hints_from_executable(&executable);
+
+        // let program_from_proof = Program::from_file(Path::new("example_proof.json"), None)
+        //     .expect("Failed to load program from file");
+
+        // Create a Nut10Secret with the Cairo program hash and condition
         let secret: Secret = Nut10Secret::new(
             Kind::Cairo,
             "PROGRAM_HASH_TODO".to_string(),
             // Some(conditions), // TODO: adapt conditions to Cairo
             None::<Conditions>,
         )
-        .try_into()
+        .try_iginto()
         .unwrap();
 
         let valid_proof: Proof = Proof {
