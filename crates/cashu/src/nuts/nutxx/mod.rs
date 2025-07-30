@@ -47,14 +47,14 @@ pub enum Error {
 /// Given to the mint by the recipient
 pub struct CairoWitness {
     /// The serialized .json proof
-    pub proof: String,
+    pub stark_proof: String,
 }
 
 impl CairoWitness {
     #[inline]
     /// Check if Witness is empty
     pub fn is_empty(&self) -> bool {
-        self.proof == ""
+        self.stark_proof == ""
     }
 }
 
@@ -99,11 +99,12 @@ impl Proof {
 
         // TODO: verify program (secret)
 
-        let cairo_proof =
-            match serde_json::from_str::<CairoProof<Blake2sMerkleHasher>>(&cairo_witness.proof) {
-                Ok(proof) => proof,
-                Err(e) => return Err(Error::Serde(e)),
-            };
+        let cairo_proof = match serde_json::from_str::<CairoProof<Blake2sMerkleHasher>>(
+            &cairo_witness.stark_proof,
+        ) {
+            Ok(proof) => proof,
+            Err(e) => return Err(Error::Serde(e)),
+        };
 
         let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen; // TODO: give option
         let result = verify_cairo::<Blake2sMerkleChannel>(
@@ -132,7 +133,9 @@ mod tests {
     #[test]
     fn test_verify() {
         let cairo_proof = include_str!("example_proof.json").to_string();
-        let witness = CairoWitness { proof: cairo_proof };
+        let witness = CairoWitness {
+            stark_proof: cairo_proof,
+        };
 
         let secret_key =
             SecretKey::from_str("99590802251e78ee1051648439eedb003dc539093a48a44e7b8f2642c909ea37")
