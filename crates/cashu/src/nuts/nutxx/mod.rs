@@ -8,6 +8,8 @@ use cairo_air::verifier::{verify_cairo, CairoVerificationError};
 use cairo_air::{CairoProof, PreProcessedTraceVariant};
 use cairo_lang_executable::executable::{EntryPointKind, Executable};
 use cairo_vm::types::program::Program;
+use cairo_vm::types::relocatable::MaybeRelocatable;
+use cairo_vm::Felt252;
 use serde::{Deserialize, Serialize};
 // use starknet_types_core::felt::Felt;
 use stwo_cairo_prover::stwo_prover::core::fri::FriConfig;
@@ -162,7 +164,14 @@ mod tests {
             serde_json::from_str(executable_json).expect("Failed to parse executable");
 
         let (program, _hints) = utils::program_and_hints_from_executable(&executable);
-
+        let data: Vec<MaybeRelocatable> = executable
+            .program
+            .bytecode
+            .iter()
+            .map(Felt252::from)
+            .map(MaybeRelocatable::from)
+            .collect();
+        panic!("Program data: {:?}", data);
         // let program_from_proof = Program::from_file(Path::new("example_proof.json"), None)
         //     .expect("Failed to load program from file");
 
@@ -173,7 +182,7 @@ mod tests {
             // Some(conditions), // TODO: adapt conditions to Cairo
             None::<Conditions>,
         )
-        .try_iginto()
+        .try_into()
         .unwrap();
 
         let valid_proof: Proof = Proof {
