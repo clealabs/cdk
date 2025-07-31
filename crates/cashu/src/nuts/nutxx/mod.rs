@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use cairo_air::air::PubMemoryValue;
 use cairo_air::verifier::{verify_cairo, CairoVerificationError};
 use cairo_air::{CairoProof, PreProcessedTraceVariant};
 use cairo_lang_executable::executable::{EntryPointKind, Executable};
@@ -11,12 +12,14 @@ use cairo_vm::types::program::Program;
 use cairo_vm::types::relocatable::MaybeRelocatable;
 use cairo_vm::Felt252;
 use serde::{Deserialize, Serialize};
+use starknet_types_core::felt::Felt;
 // use starknet_types_core::felt::Felt;
 use stwo_cairo_prover::stwo_prover::core::fri::FriConfig;
 use stwo_cairo_prover::stwo_prover::core::pcs::PcsConfig;
 use stwo_cairo_prover::stwo_prover::core::vcs::blake2_merkle::{
     Blake2sMerkleChannel, Blake2sMerkleHasher,
 };
+use stwo_cairo_prover::stwo_prover::core::vcs::blake3_hash::{Blake3Hash, Blake3Hasher};
 use thiserror::Error;
 
 use super::nut00::Witness;
@@ -76,6 +79,25 @@ fn secure_pcs_config() -> PcsConfig {
     }
 }
 
+fn pmv_to_felt(pmv: &PubMemoryValue) -> Felt {
+    let (_id, value) = pmv;
+    let mut le_bytes = [0u8; 32];
+    for (i, &v) in value.iter().enumerate() {
+        let start = i * 4;
+        le_bytes[start..start + 4].copy_from_slice(&v.to_le_bytes());
+    }
+    Felt::from_bytes_le(&le_bytes)
+}
+
+/// TODO: this is just temporary, use poseidon_hash_many on the Felt values directly instead
+fn hash_bytecode(bytecode: &[String]) -> Blake3Hash {
+    let mut hasher = Blake3Hasher::default();
+    for byte in bytecode {
+        hasher.update(byte.as_bytes());
+    }
+    hasher.finalize()
+}
+
 impl Proof {
     // /// prove cairo program // TODO: vincent: I dont think this is the right place for this
     // pub fn prove_cairo(&self) -> Result<CairoWitness, Error> {
@@ -113,6 +135,31 @@ impl Proof {
             Err(e) => return Err(Error::Serde(e)),
         };
 
+        let program: &Vec<PubMemoryValue> = &cairo_proof.claim.public_data.public_memory.program;
+
+        let bytecode_hex = program
+            .iter()
+            .map(|v| pmv_to_felt(v).to_hex_string())
+            .collect::<Vec<_>>();
+
+        let bytecode_decimal: Vec<String> = bytecode_hex
+            .iter()
+            .map(|hex_str| {
+                let clean_hex = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+                let decimal = u128::from_str_radix(clean_hex, 16).unwrap_or(0);
+                decimal.to_string()
+            })
+            .collect();
+
+        println!("proof bytecode (decimal): {:?}", bytecode_decimal);
+
+        let program_hash = hash_bytecode(&bytecode_decimal);
+        println!("proof program_hash: {}", program_hash.to_string());
+
+        // if program_hash.to_string() != secret.secret_data().data() {
+        //     return Err(Error::IncorrectSecretKind); // TODO: this is not the right error
+        // }
+
         let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen; // TODO: give option
         let result = verify_cairo::<Blake2sMerkleChannel>(
             cairo_proof,
@@ -131,6 +178,7 @@ mod tests {
     use std::convert::TryInto;
     use std::str::FromStr;
 
+    use lightning::util::string::PrintableString;
     use starknet_types_core::felt::Felt;
 
     use super::*;
@@ -164,6 +212,7 @@ mod tests {
             serde_json::from_str(executable_json).expect("Failed to parse executable");
 
         let (program, _hints) = utils::program_and_hints_from_executable(&executable);
+
         let data: Vec<MaybeRelocatable> = executable
             .program
             .bytecode
@@ -171,7 +220,13 @@ mod tests {
             .map(Felt252::from)
             .map(MaybeRelocatable::from)
             .collect();
-        panic!("Program data: {:?}", data);
+
+        // println!("Program data: {:?}", data);
+
+        // printing hex representation of the program data
+        let hex_data: Vec<String> = data.iter().map(|felt| felt.to_string()).collect();
+        println!("exec Program data: {:?}", hex_data);
+
         // let program_from_proof = Program::from_file(Path::new("example_proof.json"), None)
         //     .expect("Failed to load program from file");
 
