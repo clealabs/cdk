@@ -65,7 +65,7 @@ impl Wallet {
             .collect::<Result<HashMap<String, &String>, _>>()?;
         // Map of program hash to cairo proof
         let hashed_to_cairo_proof: HashMap<String, &String> = opts
-            .cairo_proofs
+            .cairo_proofs_json
             .iter()
             .map(|p| {
                 let cairo_proof =
@@ -301,8 +301,8 @@ pub struct ReceiveOptions {
     pub p2pk_signing_keys: Vec<SecretKey>,
     /// Preimages
     pub preimages: Vec<String>,
-    /// Cairo proofs
-    pub cairo_proofs: Vec<String>,
+    /// Cairo proofs serialized as JSON
+    pub cairo_proofs_json: Vec<String>,
     /// Metadata
     pub metadata: HashMap<String, String>,
 }

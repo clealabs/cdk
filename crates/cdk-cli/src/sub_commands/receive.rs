@@ -36,7 +36,15 @@ pub struct ReceiveSubCommand {
     /// Preimage
     #[arg(short, long,  action = clap::ArgAction::Append)]
     preimage: Vec<String>,
-    // TODO: add cairo proofs argument (path to json)
+    /// Path to Cairo executable JSON file + program arguments
+    /// Multiple executables and arguments can be passed as follows:
+    /// --cairo ./program1.json 1 1 2 ./program2.json 0
+    #[arg(long, action = clap::ArgAction::Append)]
+    cairo: Vec<String>,
+}
+
+fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
+    return "TODO".to_string(); // returns a json serialized CairoProof
 }
 
 pub async fn receive(
@@ -63,6 +71,40 @@ pub async fn receive(
         signing_keys.append(&mut s_keys);
     }
 
+    let mut cairo_proofs_json = Vec::new();
+    if !sub_command_args.cairo.is_empty() {
+        // if let Some(mint_info) = multi_mint_wallet.().await? {}
+        let wallets = multi_mint_wallet.get_wallets().await;
+        if wallets.len() != 1 {
+            panic!("Only one wallet is supported for now");
+            // TODO: if we want to support multiple wallets,
+            // either check that they all have the same mint info,
+            // or somehow find a way to generate proofs for each wallet
+        }
+        let mint_info = wallets[0].get_mint_info().await?.unwrap();
+        if !mint_info.nuts.nutxx.supported {
+            panic!("Mint does not support NUT-XX");
+        }
+        // TODO: assert cairo[0] is the path of a json file
+        let mut executable_path = sub_command_args.cairo[0].clone();
+        let mut args = Vec::new();
+        for arg in sub_command_args.cairo[1..].iter() {
+            // check if arg is a file path
+            if arg.ends_with(".json") {
+                // add arg to current_args
+                cairo_proofs_json.push(cairo_prove(executable_path.clone(), args.clone()));
+                executable_path = arg.clone();
+                args = Vec::new();
+            } else {
+                // try to parse arg as a Felt
+                // TODO: if it fails, throw error
+                // add arg to current_args
+                args.push(arg.clone());
+            }
+        }
+        cairo_proofs_json.push(cairo_prove(executable_path.clone(), args.clone()));
+    }
+
     let amount = match &sub_command_args.token {
         Some(token_str) => {
             receive_token(
@@ -70,6 +112,7 @@ pub async fn receive(
                 token_str,
                 &signing_keys,
                 &sub_command_args.preimage,
+                &cairo_proofs_json,
             )
             .await?
         }
@@ -110,6 +153,7 @@ pub async fn receive(
                     token_str,
                     &signing_keys,
                     &sub_command_args.preimage,
+                    &cairo_proofs_json,
                 )
                 .await
                 {
@@ -136,6 +180,7 @@ async fn receive_token(
     token_str: &str,
     signing_keys: &[SecretKey],
     preimage: &[String],
+    cairo_proofs_json: &[String],
 ) -> Result<Amount> {
     let token: Token = Token::from_str(token_str)?;
 
@@ -156,7 +201,7 @@ async fn receive_token(
             ReceiveOptions {
                 p2pk_signing_keys: signing_keys.to_vec(),
                 preimages: preimage.to_vec(),
-                // TODO: add cairo_proofs here
+                cairo_proofs_json: cairo_proofs_json.to_vec(),
                 ..Default::default()
             },
         )

@@ -52,6 +52,36 @@ pub enum Error {
     NotImplemented,
 }
 
+/// Optional features
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+pub struct OptionalFeatures {
+    pub bootloader: Option<String>, // TODO: put bootloader config instead of string
+}
+
+/// Cairo Prover Config
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+pub struct CairoProverConfig {
+    /// Version
+    pub version: String,
+    /// PCS Config
+    // pub pcs_config: PcsConfig, // TODO: implement Eq and Hash for PcsConfig
+    /// Merkle Hasher
+    pub merkle_hasher: String,
+    /// With Pedersen
+    pub with_pedersen: bool, // TODO: remove this field
+}
+
+/// NUTXX Settings
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema), schema(as = nutxx::Settings))]
+pub struct SupportedSettings {
+    pub supported: bool,
+    pub optional_features: Option<OptionalFeatures>,
+    pub cairo_prover_config: Option<CairoProverConfig>,
+}
+
 /// Cairo spending conditions
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Conditions {
@@ -328,4 +358,6 @@ mod tests {
         // 3. Verify the proof
         // 4. Assert that the proof is valid
     }
+
+    // TODO: add test for serialization and deserialization of mint info
 }
