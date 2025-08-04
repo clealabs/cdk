@@ -21,7 +21,10 @@ redb = ["dep:cdk-redb"]
 anyhow.workspace = true
 bip39.workspace = true
 bitcoin.workspace = true
-cdk = { workspace = true, default-features = false, features = ["wallet", "auth"]}
+cdk = { workspace = true, default-features = false, features = [
+    "wallet",
+    "auth",
+] }
 cdk-redb = { workspace = true, features = ["wallet"], optional = true }
 cdk-sqlite = { workspace = true, features = ["wallet"] }
 clap.workspace = true
@@ -34,10 +37,12 @@ home.workspace = true
 nostr-sdk = { version = "0.41.0", default-features = false, features = [
     "nip04",
     "nip44",
-    "nip59"
-]}
+    "nip59",
+] }
 reqwest.workspace = true
 url.workspace = true
 serde_with.workspace = true
 lightning.workspace = true
 trust-dns-resolver = { version = "0.23.2", optional = true }
+starknet-types-core = { workspace = true }
+cairo-prove = { workspace = true }

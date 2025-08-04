@@ -149,7 +149,7 @@ impl CairoWitness {
     }
 }
 
-fn secure_pcs_config() -> PcsConfig {
+pub fn secure_pcs_config() -> PcsConfig {
     PcsConfig {
         pow_bits: 26,
         fri_config: FriConfig {

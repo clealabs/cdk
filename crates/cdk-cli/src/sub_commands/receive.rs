@@ -4,6 +4,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
+use cairo_prove::execute::execute;
+use cairo_prove::prove::{prove, prover_input_from_runner};
+use cdk::nuts::nutxx::secure_pcs_config;
 use cdk::nuts::{SecretKey, Token};
 use cdk::util::unix_time;
 use cdk::wallet::multi_mint_wallet::MultiMintWallet;
@@ -13,6 +16,7 @@ use cdk::Amount;
 use clap::Args;
 use nostr_sdk::nips::nip04;
 use nostr_sdk::{Filter, Keys, Kind, Timestamp};
+use starknet_types_core::felt::Felt;
 
 use crate::nostr_storage;
 use crate::utils::get_or_create_wallet;
@@ -44,7 +48,18 @@ pub struct ReceiveSubCommand {
 }
 
 fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
-    return "TODO".to_string(); // returns a json serialized CairoProof
+    let executable = serde_json::from_reader(
+        rdr::File::open(executable_path).expect("Failed to open Cairo executable file"),
+    )
+    .expect("Failed to parse Cairo executable JSON");
+
+    let runner = execute(executable, args);
+    let prover_input = prover_input_from_runner(&runner);
+
+    let pcs_config = secure_pcs_config();
+    let cairo_proof = prove(prover_input, pcs_config);
+
+    return serde_json::to_string(&cairo_proof); // returns a json serialized CairoProof
 }
 
 pub async fn receive(
@@ -72,6 +87,8 @@ pub async fn receive(
     }
 
     let mut cairo_proofs_json = Vec::new();
+
+    // TODO : cleaner parser
     if !sub_command_args.cairo.is_empty() {
         // if let Some(mint_info) = multi_mint_wallet.().await? {}
         let wallets = multi_mint_wallet.get_wallets().await;
@@ -91,6 +108,10 @@ pub async fn receive(
         for arg in sub_command_args.cairo[1..].iter() {
             // check if arg is a file path
             if arg.ends_with(".json") {
+                // check if the file exists
+                if !std::path::Path::new(&executable_path).exists() {
+                    panic!("Cairo executable file not found: {}", executable_path);
+                }
                 // add arg to current_args
                 cairo_proofs_json.push(cairo_prove(executable_path.clone(), args.clone()));
                 executable_path = arg.clone();
@@ -98,6 +119,9 @@ pub async fn receive(
             } else {
                 // try to parse arg as a Felt
                 // TODO: if it fails, throw error
+                if let Err(_) = Felt::from_str(arg) {
+                    panic!("Invalid argument for Cairo proof: {}", arg);
+                }
                 // add arg to current_args
                 args.push(arg.clone());
             }
