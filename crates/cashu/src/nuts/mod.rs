@@ -70,4 +70,5 @@ pub use nut23::{
     MintQuoteBolt11Response, QuoteState as MintQuoteState,
 };
 pub use nut24::{MeltQuoteBolt12Request, MintQuoteBolt12Request, MintQuoteBolt12Response};
+//TODO: find a better fix for NUTXXConditions
 pub use nutxx::{CairoWitness, Conditions as NutXXConditions};

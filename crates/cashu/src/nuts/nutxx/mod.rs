@@ -7,6 +7,7 @@ use std::str::FromStr;
 use cairo_air::air::PubMemoryValue;
 use cairo_air::verifier::{verify_cairo, CairoVerificationError};
 use cairo_air::{CairoProof, PreProcessedTraceVariant};
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::{Poseidon, StarkHash};
@@ -20,7 +21,6 @@ use thiserror::Error;
 use super::nut00::Witness;
 use super::{Nut10Secret, Proof};
 use crate::nut11::TagKind;
-
 pub mod serde_cairo_witness;
 
 /// Nutxx Error
@@ -71,6 +71,41 @@ pub struct CairoProverConfig {
     pub merkle_hasher: String,
     /// With Pedersen
     pub with_pedersen: bool, // TODO: remove this field
+}
+
+#[derive(Deserialize)]
+pub struct Executable {
+    pub program: Program,
+}
+
+#[derive(Deserialize)]
+pub struct Program {
+    #[serde(deserialize_with = "deserialize_felt_vec")]
+    pub bytecode: Vec<Felt>,
+}
+
+fn deserialize_felt_vec<'de, D>(deserializer: D) -> Result<Vec<Felt>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let hex_strings: Vec<String> = Vec::deserialize(deserializer)?;
+    hex_strings
+        .into_iter()
+        .map(|s| {
+            // This is a hack because `Felt::from_hex` doesn't work with negative numbers.
+            // This is ok because we only need to parse executables during testing and thus
+            // using cairo_lang_executable is not worth having an extra dependency
+            let is_negative = s.starts_with('-');
+            let normalized_hex = if is_negative {
+                s.trim_start_matches('-').to_string()
+            } else {
+                s.clone()
+            };
+            let felt = Felt::from_hex(&normalized_hex).map_err(de::Error::custom)?;
+            let corrected_felt = if is_negative { -felt } else { felt };
+            Ok(corrected_felt)
+        })
+        .collect()
 }
 
 /// NUTXX Settings
@@ -238,47 +273,11 @@ mod tests {
     use std::convert::TryInto;
     use std::str::FromStr;
 
-    use serde::de::{self, Deserializer};
     use starknet_types_core::felt::Felt;
 
     use super::*;
     use crate::secret::Secret;
     use crate::{Amount, Id, Kind, Nut10Secret, SecretKey};
-
-    #[derive(Deserialize)]
-    struct Executable {
-        program: Program,
-    }
-
-    #[derive(Deserialize)]
-    struct Program {
-        #[serde(deserialize_with = "deserialize_felt_vec")]
-        bytecode: Vec<Felt>,
-    }
-
-    fn deserialize_felt_vec<'de, D>(deserializer: D) -> Result<Vec<Felt>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_strings: Vec<String> = Vec::deserialize(deserializer)?;
-        hex_strings
-            .into_iter()
-            .map(|s| {
-                // This is a hack because `Felt::from_hex` doesn't work with negative numbers.
-                // This is ok because we only need to parse executables during testing and thus
-                // using cairo_lang_executable is not worth having an extra dependency
-                let is_negative = s.starts_with('-');
-                let normalized_hex = if is_negative {
-                    s.trim_start_matches('-').to_string()
-                } else {
-                    s.clone()
-                };
-                let felt = Felt::from_hex(&normalized_hex).map_err(de::Error::custom)?;
-                let corrected_felt = if is_negative { -felt } else { felt };
-                Ok(corrected_felt)
-            })
-            .collect()
-    }
 
     #[test]
     fn test_verify() {

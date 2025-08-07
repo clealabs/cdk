@@ -21,6 +21,7 @@ redb = ["dep:cdk-redb"]
 anyhow.workspace = true
 bip39.workspace = true
 bitcoin.workspace = true
+cashu = { workspace = true}
 cdk = { workspace = true, default-features = false, features = [
     "wallet",
     "auth",

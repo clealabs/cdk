@@ -1,11 +1,16 @@
+use std::fs; // Add this line
 use std::str::FromStr;
 
 use anyhow::{anyhow, Result};
+use cashu::NutXXConditions;
+use cdk::nuts::nutxx::Executable;
 use cdk::nuts::{Conditions, CurrencyUnit, PublicKey, SpendingConditions};
 use cdk::wallet::types::SendKind;
 use cdk::wallet::{MultiMintWallet, SendMemo, SendOptions};
 use cdk::Amount;
 use clap::Args;
+use starknet_types_core::felt::Felt;
+use starknet_types_core::hash::{Poseidon, StarkHash};
 
 use crate::sub_commands::balance::mint_balances;
 use crate::utils::{
@@ -34,14 +39,14 @@ pub struct SendSubCommand {
     #[arg(short, long, action = clap::ArgAction::Append)]
     pubkey: Vec<String>,
 
-    /// Vec["path_to_executable.json", output_len, outputs]
+    /// ["path_to_executable.json", output_len, outputs]
     #[arg(long, conflicts_with = "cairo_program_hash")]
-    cairo_executable: Option<String>,
+    cairo_executable_args: Option<Vec<String>>,
 
     // Hash of the cairo program bytecode - alternative to cairo_executable
-    /// Vec[program hash, output_len, outputs]
+    /// [program hash, output_len, outputs]
     #[arg(long, conflicts_with = "cairo_executable")]
-    cairo_program_hash: Option<String>,
+    cairo_program_hash: Option<Vec<String>>,
 
     /// Refund keys that can be used after locktime
     #[arg(long, action = clap::ArgAction::Append)]
@@ -96,7 +101,7 @@ pub async fn send(
     check_sufficient_funds(mint_amount, token_amount)?;
 
     // refactoring this
-    // let conditions = match (&sub_command_args.preimage, &sub_command_args.hash) {
+    // let conditions: Option<SpendingConditions> = match (&sub_command_args.preimage, &sub_command_args.hash) {
     //     (Some(_), Some(_)) => {
     //         // This case shouldn't be reached due to Clap's conflicts_with attribute
     //         unreachable!("Both preimage and hash were provided despite conflicts_with attribute")
@@ -210,102 +215,189 @@ pub async fn send(
     //     },
     // };
 
-    fn parse_pubkeys(pubkeys: &[String]) -> Result<Option<Vec<PublicKey>>> {
-        if pubkeys.is_empty() {
-            return Ok(None);
-        }
-
-        let parsed: Result<Vec<_>, _> = pubkeys.iter().map(|p| PublicKey::from_str(p)).collect();
-
-        Ok(Some(parsed?))
-    }
-
-    fn create_base_conditions(args: &SendSubCommand) -> Result<Conditions> {
-        let pubkeys = parse_pubkeys(&args.pubkey)?;
-        let refund_keys = parse_pubkeys(&args.refund_keys)?;
-
-        Conditions::new(
-            args.locktime,
-            pubkeys,
-            refund_keys,
-            args.required_sigs,
-            None,
-            None,
-        )
-    }
-
     // TODO: support Cairo conditions from executable -> match on args.cairo_executable
     let conditions = match (
-        &args.preimage,
-        &args.hash,
-        &args.cairo_program_hash,
-        &args.cairo_executable,
+        &sub_command_args.preimage,
+        &sub_command_args.hash,
+        &sub_command_args.cairo_program_hash,
+        &sub_command_args.cairo_executable_args,
     ) {
         // HTLC with preimage
         (Some(preimage), None, None, None) => {
-            let conditions = create_base_conditions(args)?;
-            Ok(Some(SpendingConditions::new_htlc(
+            let pubkeys = match sub_command_args.pubkey.is_empty() {
+                true => None,
+                false => Some(
+                    sub_command_args
+                        .pubkey
+                        .iter()
+                        .map(|p| PublicKey::from_str(p).unwrap())
+                        .collect(),
+                ),
+            };
+            let refund_keys = match sub_command_args.refund_keys.is_empty() {
+                true => None,
+                false => Some(
+                    sub_command_args
+                        .refund_keys
+                        .iter()
+                        .map(|p| PublicKey::from_str(p).unwrap())
+                        .collect(),
+                ),
+            };
+
+            let conditions = Conditions::new(
+                sub_command_args.locktime,
+                pubkeys,
+                refund_keys,
+                sub_command_args.required_sigs,
+                None,
+                None,
+            )
+            .unwrap();
+
+            Some(SpendingConditions::new_htlc(
                 preimage.clone(),
                 Some(conditions),
-            )?))
+            )?)
         }
 
         // HTLC with hash
         (None, Some(hash), None, None) => {
-            let conditions = create_base_conditions(args)?;
-            Ok(Some(SpendingConditions::new_htlc_hash(
-                hash,
-                Some(conditions),
-            )?))
-        }
+            let pubkeys: Option<Vec<PublicKey>> = match sub_command_args.pubkey.is_empty() {
+                true => None,
+                false => Some(
+                    sub_command_args
+                        .pubkey
+                        .iter()
+                        .map(|p| PublicKey::from_str(p).unwrap())
+                        .collect(),
+                ),
+            };
 
-        // Cairo conditions
-        (None, None, Some(program_hash), None) => {
-            //let conditions = create_base_conditions(args)?;
-            let program_hash = Felt::from_hex(program_hash)?;
-            Ok(Some(SpendingConditions::new_cairo(
-                program_hash,
-                Some(conditions),
-            )))
-        }
-
-        //from executable
-        (None, None, None, Some(executable)) => {
-            match sub_command_args.cairo_executable.is_empty() {
-                True => None,
-                False => {}
-            }
-            // here we want to parse the executable JSON, and hash its bytecode
-            let executable_json = include_str!("example_executable.json");
-            let executable: Executable = serde_json::from_str(executable_json).unwrap();
-            let program_hash = Poseidon::hash_array(&executable.program.bytecode);
-        }
-
-        (None, None, None, None) => {
-            if args.pubkey.is_empty() {
-                return Ok(None);
-            }
-
-            let pubkeys = parse_pubkeys(&args.pubkey)?;
-            let data_pubkey = pubkeys.as_ref().unwrap()[0]; // First key is data key
-            let remaining_pubkeys = pubkeys.unwrap()[1..].to_vec();
+            let refund_keys = match sub_command_args.refund_keys.is_empty() {
+                true => None,
+                false => Some(
+                    sub_command_args
+                        .refund_keys
+                        .iter()
+                        .map(|p| PublicKey::from_str(p).unwrap())
+                        .collect(),
+                ),
+            };
 
             let conditions = Conditions::new(
-                args.locktime,
-                (!remaining_pubkeys.is_empty()).then_some(remaining_pubkeys),
-                parse_pubkeys(&args.refund_keys)?,
-                args.required_sigs,
+                sub_command_args.locktime,
+                pubkeys,
+                refund_keys,
+                sub_command_args.required_sigs,
                 None,
                 None,
             )?;
 
-            Ok(Some(SpendingConditions::P2PKConditions {
-                data: data_pubkey,
-                conditions: Some(conditions),
-            }))
+            Some(SpendingConditions::new_htlc_hash(hash, Some(conditions))?)
         }
 
-        _ => Err(anyhow!("Conflicting spending condition arguments provided")),
+        // Cairo conditions from program hash directly
+        (None, None, Some(program_hash), None) => {
+            //TODO
+            None
+        }
+
+        //from executable
+        (None, None, None, Some(cairo_executable_args)) => {
+            match cairo_executable_args.is_empty() {
+                true => None,
+                false => {
+                    // find the executable file
+                    let exec_path = std::path::Path::new(&cairo_executable_args[0]);
+                    if !exec_path.exists() {
+                        return Err(anyhow!(
+                            "Cairo executable file not found: {}",
+                            exec_path.display()
+                        ));
+                    }
+                    // parse the output arguments -> output_len, iterate over outputs
+                    let narg_output = cairo_executable_args[1]
+                        .parse::<usize>()
+                        .map_err(|_| anyhow!("Invalid output length argument"))?;
+
+                    let output_conditions = cairo_executable_args[2..]
+                        .iter()
+                        .map(|o| Felt::from_hex(o))
+                        .collect::<Result<Vec<Felt>, _>>()?;
+
+                    //TODO: remove this once we support multiple output hashes
+                    if output_conditions.len() > 1 {
+                        return Err(anyhow!(
+                            "Multiple outputs are not supported yet, found: {}",
+                            output_conditions.len()
+                        ));
+                    }
+                    if output_conditions.len() != narg_output {
+                        return Err(anyhow!(
+                            "Number of outputs does not match the expected output length"
+                        ));
+                    }
+
+                    // parse the executable and hash the bytecode
+                    let executable: Executable =
+                        serde_json::from_str::<Executable>(&std::fs::read_to_string(exec_path)?)
+                            .map_err(|e| anyhow!("Failed to parse Cairo executable: {}", e))?;
+
+                    let program_hash: Felt = Poseidon::hash_array(&executable.program.bytecode);
+
+                    // TODO: support multiple outputs
+                    let output_condition = Some(NutXXConditions {
+                        output: Some(Poseidon::hash_array(&output_conditions)),
+                    });
+
+                    Some(SpendingConditions::CairoConditions {
+                        data: program_hash,
+                        conditions: output_condition,
+                    })
+                    // create the Cairo conditions
+                }
+            }
+        }
+
+        (None, None, None, None) => match sub_command_args.pubkey.is_empty() {
+            true => None,
+            false => {
+                let pubkeys: Vec<PublicKey> = sub_command_args
+                    .pubkey
+                    .iter()
+                    .map(|p| PublicKey::from_str(p).unwrap())
+                    .collect();
+
+                let refund_keys: Vec<PublicKey> = sub_command_args
+                    .refund_keys
+                    .iter()
+                    .map(|p| PublicKey::from_str(p).unwrap())
+                    .collect();
+
+                let refund_keys = (!refund_keys.is_empty()).then_some(refund_keys);
+
+                let data_pubkey = pubkeys[0];
+                let pubkeys = pubkeys[1..].to_vec();
+                let pubkeys = (!pubkeys.is_empty()).then_some(pubkeys);
+
+                let conditions = Conditions::new(
+                    sub_command_args.locktime,
+                    pubkeys,
+                    refund_keys,
+                    sub_command_args.required_sigs,
+                    None,
+                    None,
+                )?;
+
+                Some(SpendingConditions::P2PKConditions {
+                    data: data_pubkey,
+                    conditions: Some(conditions),
+                })
+            }
+        },
+
+        _ => None, // TODO : gracefully handle this case
     };
 
     /// maybe we could have a builder such that it returns an error if more than one condition is set.. because as it seems with the current code
@@ -337,8 +429,6 @@ pub async fn send(
     match sub_command_args.v3 {
         true => {
             let token = token;
-
-            println!("{}", token.to_v3_string());
         }
         false => {
             println!("{token}");

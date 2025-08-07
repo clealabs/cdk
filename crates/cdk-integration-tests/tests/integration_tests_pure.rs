@@ -574,6 +574,8 @@ pub async fn test_cairo_swap() {
     let program_hash = Poseidon::hash_array(&executable.program.bytecode);
 
     let output_condition = vec![Felt::from(1)]; // program output: true
+
+    // TODO: support multiple output hashes, we may want to use some merkle tree like ds
     let desired_program_output_hash = Some(NutXXConditions {
         output: Some(Poseidon::hash_array(&output_condition)),
     });
