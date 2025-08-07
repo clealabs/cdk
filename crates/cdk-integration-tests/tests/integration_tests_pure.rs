@@ -610,6 +610,7 @@ pub async fn test_cairo_swap() {
     // TODO: implement the actual cairo proof generation from the wallet
     let cairo_proof: String =
         include_str!("../../cashu/src/nuts/nutxx/example_proof.json").to_string();
+
     for proof in &mut proofs {
         proof.add_cairo_proof(cairo_proof.clone());
     }
@@ -646,6 +647,13 @@ pub async fn test_cairo_swap() {
 
     assert!(listener.try_recv().is_err(), "no other event is happening");
     assert!(msgs.is_empty(), "Only expected key events are received");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+pub async fn test_cairo_send() {
+    // 1. Alice Mints token with cairo spending condition
+    // 2. Alice sends token to Bob
+    // 3. Bob receives token, which implies verification of cairo proof by the mint
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

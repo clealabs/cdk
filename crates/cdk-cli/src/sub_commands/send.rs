@@ -29,9 +29,20 @@ pub struct SendSubCommand {
     /// Locktime before refund keys can be used
     #[arg(short, long)]
     locktime: Option<u64>,
+
     /// Pubkey to lock proofs to
     #[arg(short, long, action = clap::ArgAction::Append)]
     pubkey: Vec<String>,
+
+    /// Vec["path_to_executable.json", output_len, outputs]
+    #[arg(long, conflicts_with = "cairo_program_hash")]
+    cairo_executable: Option<String>,
+
+    // Hash of the cairo program bytecode - alternative to cairo_executable
+    /// Vec[program hash, output_len, outputs]
+    #[arg(long, conflicts_with = "cairo_executable")]
+    cairo_program_hash: Option<String>,
+
     /// Refund keys that can be used after locktime
     #[arg(long, action = clap::ArgAction::Append)]
     refund_keys: Vec<String>,
@@ -84,121 +95,221 @@ pub async fn send(
 
     check_sufficient_funds(mint_amount, token_amount)?;
 
-    let conditions = match (&sub_command_args.preimage, &sub_command_args.hash) {
-        (Some(_), Some(_)) => {
-            // This case shouldn't be reached due to Clap's conflicts_with attribute
-            unreachable!("Both preimage and hash were provided despite conflicts_with attribute")
+    // refactoring this
+    // let conditions = match (&sub_command_args.preimage, &sub_command_args.hash) {
+    //     (Some(_), Some(_)) => {
+    //         // This case shouldn't be reached due to Clap's conflicts_with attribute
+    //         unreachable!("Both preimage and hash were provided despite conflicts_with attribute")
+    //     }
+    //     (Some(preimage), None) => {
+    //         let pubkeys = match sub_command_args.pubkey.is_empty() {
+    //             true => None,
+    //             false => Some(
+    //                 sub_command_args
+    //                     .pubkey
+    //                     .iter()
+    //                     .map(|p| PublicKey::from_str(p).unwrap())
+    //                     .collect(),
+    //             ),
+    //         };
+    //         let refund_keys = match sub_command_args.refund_keys.is_empty() {
+    //             true => None,
+    //             false => Some(
+    //                 sub_command_args
+    //                     .refund_keys
+    //                     .iter()
+    //                     .map(|p| PublicKey::from_str(p).unwrap())
+    //                     .collect(),
+    //             ),
+    //         };
+
+    //         let conditions = Conditions::new(
+    //             sub_command_args.locktime,
+    //             pubkeys,
+    //             refund_keys,
+    //             sub_command_args.required_sigs,
+    //             None,
+    //             None,
+    //         )
+    //         .unwrap();
+
+    //         Some(SpendingConditions::new_htlc(
+    //             preimage.clone(),
+    //             Some(conditions),
+    //         )?)
+    //     }
+    //     (None, Some(hash)) => {
+    //         let pubkeys: Option<Vec<PublicKey>> = match sub_command_args.pubkey.is_empty() {
+    //             true => None,
+    //             false => Some(
+    //                 sub_command_args
+    //                     .pubkey
+    //                     .iter()
+    //                     .map(|p| PublicKey::from_str(p).unwrap())
+    //                     .collect(),
+    //             ),
+    //         };
+
+    //         let refund_keys = match sub_command_args.refund_keys.is_empty() {
+    //             true => None,
+    //             false => Some(
+    //                 sub_command_args
+    //                     .refund_keys
+    //                     .iter()
+    //                     .map(|p| PublicKey::from_str(p).unwrap())
+    //                     .collect(),
+    //             ),
+    //         };
+
+    //         let conditions = Conditions::new(
+    //             sub_command_args.locktime,
+    //             pubkeys,
+    //             refund_keys,
+    //             sub_command_args.required_sigs,
+    //             None,
+    //             None,
+    //         )?;
+
+    //         Some(SpendingConditions::new_htlc_hash(hash, Some(conditions))?)
+    //     }
+    //     (None, None) => match sub_command_args.pubkey.is_empty() {
+    //         true => None,
+    //         false => {
+    //             let pubkeys: Vec<PublicKey> = sub_command_args
+    //                 .pubkey
+    //                 .iter()
+    //                 .map(|p| PublicKey::from_str(p).unwrap())
+    //                 .collect();
+
+    //             let refund_keys: Vec<PublicKey> = sub_command_args
+    //                 .refund_keys
+    //                 .iter()
+    //                 .map(|p| PublicKey::from_str(p).unwrap())
+    //                 .collect();
+
+    //             let refund_keys = (!refund_keys.is_empty()).then_some(refund_keys);
+
+    //             let data_pubkey = pubkeys[0];
+    //             let pubkeys = pubkeys[1..].to_vec();
+    //             let pubkeys = (!pubkeys.is_empty()).then_some(pubkeys);
+
+    //             let conditions = Conditions::new(
+    //                 sub_command_args.locktime,
+    //                 pubkeys,
+    //                 refund_keys,
+    //                 sub_command_args.required_sigs,
+    //                 None,
+    //                 None,
+    //             )?;
+
+    //             Some(SpendingConditions::P2PKConditions {
+    //                 data: data_pubkey,
+    //                 conditions: Some(conditions),
+    //             })
+    //         }
+    //     },
+    // };
+
+    fn parse_pubkeys(pubkeys: &[String]) -> Result<Option<Vec<PublicKey>>> {
+        if pubkeys.is_empty() {
+            return Ok(None);
         }
-        (Some(preimage), None) => {
-            let pubkeys = match sub_command_args.pubkey.is_empty() {
-                true => None,
-                false => Some(
-                    sub_command_args
-                        .pubkey
-                        .iter()
-                        .map(|p| PublicKey::from_str(p).unwrap())
-                        .collect(),
-                ),
-            };
 
-            let refund_keys = match sub_command_args.refund_keys.is_empty() {
-                true => None,
-                false => Some(
-                    sub_command_args
-                        .refund_keys
-                        .iter()
-                        .map(|p| PublicKey::from_str(p).unwrap())
-                        .collect(),
-                ),
-            };
+        let parsed: Result<Vec<_>, _> = pubkeys.iter().map(|p| PublicKey::from_str(p)).collect();
 
-            let conditions = Conditions::new(
-                sub_command_args.locktime,
-                pubkeys,
-                refund_keys,
-                sub_command_args.required_sigs,
-                None,
-                None,
-            )
-            .unwrap();
+        Ok(Some(parsed?))
+    }
 
-            Some(SpendingConditions::new_htlc(
+    fn create_base_conditions(args: &SendSubCommand) -> Result<Conditions> {
+        let pubkeys = parse_pubkeys(&args.pubkey)?;
+        let refund_keys = parse_pubkeys(&args.refund_keys)?;
+
+        Conditions::new(
+            args.locktime,
+            pubkeys,
+            refund_keys,
+            args.required_sigs,
+            None,
+            None,
+        )
+    }
+
+    // TODO: support Cairo conditions from executable -> match on args.cairo_executable
+    let conditions = match (
+        &args.preimage,
+        &args.hash,
+        &args.cairo_program_hash,
+        &args.cairo_executable,
+    ) {
+        // HTLC with preimage
+        (Some(preimage), None, None, None) => {
+            let conditions = create_base_conditions(args)?;
+            Ok(Some(SpendingConditions::new_htlc(
                 preimage.clone(),
                 Some(conditions),
-            )?)
+            )?))
         }
-        (None, Some(hash)) => {
-            let pubkeys = match sub_command_args.pubkey.is_empty() {
-                true => None,
-                false => Some(
-                    sub_command_args
-                        .pubkey
-                        .iter()
-                        .map(|p| PublicKey::from_str(p).unwrap())
-                        .collect(),
-                ),
-            };
 
-            let refund_keys = match sub_command_args.refund_keys.is_empty() {
-                true => None,
-                false => Some(
-                    sub_command_args
-                        .refund_keys
-                        .iter()
-                        .map(|p| PublicKey::from_str(p).unwrap())
-                        .collect(),
-                ),
-            };
+        // HTLC with hash
+        (None, Some(hash), None, None) => {
+            let conditions = create_base_conditions(args)?;
+            Ok(Some(SpendingConditions::new_htlc_hash(
+                hash,
+                Some(conditions),
+            )?))
+        }
+
+        // Cairo conditions
+        (None, None, Some(program_hash), None) => {
+            //let conditions = create_base_conditions(args)?;
+            let program_hash = Felt::from_hex(program_hash)?;
+            Ok(Some(SpendingConditions::new_cairo(
+                program_hash,
+                Some(conditions),
+            )))
+        }
+
+        //from executable
+        (None, None, None, Some(executable)) => {
+            match sub_command_args.cairo_executable.is_empty() {
+                True => None,
+                False => {}
+            }
+            // here we want to parse the executable JSON, and hash its bytecode
+            let executable_json = include_str!("example_executable.json");
+            let executable: Executable = serde_json::from_str(executable_json).unwrap();
+            let program_hash = Poseidon::hash_array(&executable.program.bytecode);
+        }
+
+        (None, None, None, None) => {
+            if args.pubkey.is_empty() {
+                return Ok(None);
+            }
+
+            let pubkeys = parse_pubkeys(&args.pubkey)?;
+            let data_pubkey = pubkeys.as_ref().unwrap()[0]; // First key is data key
+            let remaining_pubkeys = pubkeys.unwrap()[1..].to_vec();
 
             let conditions = Conditions::new(
-                sub_command_args.locktime,
-                pubkeys,
-                refund_keys,
-                sub_command_args.required_sigs,
+                args.locktime,
+                (!remaining_pubkeys.is_empty()).then_some(remaining_pubkeys),
+                parse_pubkeys(&args.refund_keys)?,
+                args.required_sigs,
                 None,
                 None,
             )?;
 
-            Some(SpendingConditions::new_htlc_hash(hash, Some(conditions))?)
+            Ok(Some(SpendingConditions::P2PKConditions {
+                data: data_pubkey,
+                conditions: Some(conditions),
+            }))
         }
-        (None, None) => match sub_command_args.pubkey.is_empty() {
-            true => None,
-            false => {
-                let pubkeys: Vec<PublicKey> = sub_command_args
-                    .pubkey
-                    .iter()
-                    .map(|p| PublicKey::from_str(p).unwrap())
-                    .collect();
 
-                let refund_keys: Vec<PublicKey> = sub_command_args
-                    .refund_keys
-                    .iter()
-                    .map(|p| PublicKey::from_str(p).unwrap())
-                    .collect();
-
-                let refund_keys = (!refund_keys.is_empty()).then_some(refund_keys);
-
-                let data_pubkey = pubkeys[0];
-                let pubkeys = pubkeys[1..].to_vec();
-                let pubkeys = (!pubkeys.is_empty()).then_some(pubkeys);
-
-                let conditions = Conditions::new(
-                    sub_command_args.locktime,
-                    pubkeys,
-                    refund_keys,
-                    sub_command_args.required_sigs,
-                    None,
-                    None,
-                )?;
-
-                Some(SpendingConditions::P2PKConditions {
-                    data: data_pubkey,
-                    conditions: Some(conditions),
-                })
-            }
-        },
+        _ => Err(anyhow!("Conflicting spending condition arguments provided")),
     };
 
+    /// maybe we could have a builder such that it returns an error if more than one condition is set.. because as it seems with the current code
+    /// we can't have both and htlc condition and a p2pk condition
     let send_kind = match (sub_command_args.offline, sub_command_args.tolerance) {
         (true, Some(amount)) => SendKind::OfflineTolerance(Amount::from(amount)),
         (true, None) => SendKind::OfflineExact,

@@ -4,9 +4,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
+use cairo_lang_runner::Arg;
 use cairo_prove::execute::execute;
 use cairo_prove::prove::{prove, prover_input_from_runner};
-use cdk::nuts::nutxx::secure_pcs_config;
 use cdk::nuts::{SecretKey, Token};
 use cdk::util::unix_time;
 use cdk::wallet::multi_mint_wallet::MultiMintWallet;
@@ -17,6 +17,8 @@ use clap::Args;
 use nostr_sdk::nips::nip04;
 use nostr_sdk::{Filter, Keys, Kind, Timestamp};
 use starknet_types_core::felt::Felt;
+use stwo_cairo_prover::stwo_prover::core::fri::FriConfig;
+use stwo_cairo_prover::stwo_prover::core::pcs::PcsConfig;
 
 use crate::nostr_storage;
 use crate::utils::get_or_create_wallet;
@@ -49,17 +51,31 @@ pub struct ReceiveSubCommand {
 
 fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
     let executable = serde_json::from_reader(
-        rdr::File::open(executable_path).expect("Failed to open Cairo executable file"),
+        std::fs::File::open(executable_path).expect("Failed to open Cairo executable file"),
     )
     .expect("Failed to parse Cairo executable JSON");
-
+    let args: Vec<Arg> = args
+        .iter()
+        .map(|a| {
+            Felt::from_str(a)
+                .expect("Invalid argument for Cairo proof")
+                .into()
+        })
+        .collect();
     let runner = execute(executable, args);
     let prover_input = prover_input_from_runner(&runner);
 
-    let pcs_config = secure_pcs_config();
+    let pcs_config = PcsConfig {
+        pow_bits: 26,
+        fri_config: FriConfig {
+            log_last_layer_degree_bound: 0,
+            log_blowup_factor: 1,
+            n_queries: 70,
+        },
+    };
     let cairo_proof = prove(prover_input, pcs_config);
 
-    return serde_json::to_string(&cairo_proof); // returns a json serialized CairoProof
+    return serde_json::to_string(&cairo_proof).unwrap(); // returns a json serialized CairoProof
 }
 
 pub async fn receive(

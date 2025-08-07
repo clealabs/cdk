@@ -46,3 +46,5 @@ lightning.workspace = true
 trust-dns-resolver = { version = "0.23.2", optional = true }
 starknet-types-core = { workspace = true }
 cairo-prove = { workspace = true }
+stwo_cairo_prover = { workspace = true }
+cairo-lang-runner = { workspace = true }
