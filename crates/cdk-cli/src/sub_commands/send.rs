@@ -298,9 +298,37 @@ pub async fn send(
         }
 
         // Cairo conditions from program hash directly
-        (None, None, Some(program_hash), None) => {
-            //TODO
-            None
+        (None, None, Some(program_hash_args), None) => {
+            let program_hash = Felt::from_hex(&program_hash_args[0])
+                .map_err(|_| anyhow!("Invalid program hash"))?;
+            let narg_output = program_hash_args[1]
+                .parse::<usize>()
+                .map_err(|_| anyhow!("Invalid output length argument"))?;
+            let output_conditions = program_hash_args[2..]
+                .iter()
+                .map(|o| Felt::from_hex(o))
+                .collect::<Result<Vec<Felt>, _>>()?;
+
+            if output_conditions.len() > 1 {
+                return Err(anyhow!(
+                    "Multiple outputs are not supported yet, found: {}",
+                    output_conditions.len()
+                ));
+            }
+            if output_conditions.len() != narg_output {
+                return Err(anyhow!(
+                    "Number of outputs does not match the expected output length"
+                ));
+            }
+
+            let output_condition = Some(NutXXConditions {
+                output: Some(Poseidon::hash_array(&output_conditions)),
+            });
+
+            Some(SpendingConditions::CairoConditions {
+                data: program_hash,
+                conditions: output_condition,
+            })
         }
 
         //from executable
@@ -355,7 +383,6 @@ pub async fn send(
                         data: program_hash,
                         conditions: output_condition,
                     })
-                    // create the Cairo conditions
                 }
             }
         }
