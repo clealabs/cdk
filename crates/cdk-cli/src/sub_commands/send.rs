@@ -41,7 +41,7 @@ pub struct SendSubCommand {
 
     /// ["path_to_executable.json", output_len, outputs]
     #[arg(long, conflicts_with = "cairo_program_hash")]
-    cairo_executable_args: Option<Vec<String>>,
+    cairo_executable: Option<Vec<String>>,
 
     // Hash of the cairo program bytecode - alternative to cairo_executable
     /// [program hash, output_len, outputs]
@@ -220,7 +220,7 @@ pub async fn send(
         &sub_command_args.preimage,
         &sub_command_args.hash,
         &sub_command_args.cairo_program_hash,
-        &sub_command_args.cairo_executable_args,
+        &sub_command_args.cairo_executable,
     ) {
         // HTLC with preimage
         (Some(preimage), None, None, None) => {
