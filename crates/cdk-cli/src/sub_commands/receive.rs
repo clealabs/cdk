@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use cairo_lang_runner::Arg;
@@ -43,13 +43,19 @@ pub struct ReceiveSubCommand {
     #[arg(short, long,  action = clap::ArgAction::Append)]
     preimage: Vec<String>,
     /// Path to Cairo executable JSON file + program arguments
-    /// Multiple executables and arguments can be passed as follows:
-    /// --cairo ./program1.json 1 1 2 ./program2.json 0
-    #[arg(long, action = clap::ArgAction::Append)]
+    /// Example: --cairo ./program.json 1 1
+    /// accept multiple values after the flag: --cairo <path> <out_len> <out1> <out2> ...
+    #[arg(long, num_args = 1..)]
     cairo: Vec<String>,
 }
 
 fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
+    println!(
+        "[cairo_prove fn] Executable path: {}, args: {}",
+        executable_path,
+        args.join(" ")
+    );
+
     let executable = serde_json::from_reader(
         std::fs::File::open(executable_path).expect("Failed to open Cairo executable file"),
     )
@@ -73,7 +79,19 @@ fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
             n_queries: 70,
         },
     };
+
+    println!("[cairo_prove fn] Prover input: {:?}", prover_input);
+    let start = Instant::now();
     let cairo_proof = prove(prover_input, pcs_config);
+    println!(
+        "[cairo_prove fn] Cairo proof generated successfully in {} ms",
+        start.elapsed().as_millis()
+    );
+    let cairo_proof_str = serde_json::to_string(&cairo_proof);
+    println!(
+        "[cairo_prove fn] Cairo proof: {}",
+        cairo_proof_str.as_ref().unwrap()
+    );
 
     return serde_json::to_string(&cairo_proof).unwrap(); // returns a json serialized CairoProof
 }
@@ -114,10 +132,10 @@ pub async fn receive(
             // either check that they all have the same mint info,
             // or somehow find a way to generate proofs for each wallet
         }
-        let mint_info = wallets[0].get_mint_info().await?.unwrap();
-        if !mint_info.nuts.nutxx.supported {
-            panic!("Mint does not support NUT-XX");
-        }
+        //let mint_info = wallets[0].get_mint_info().await?.unwrap();
+        // if !mint_info.nuts.nutxx.supported {
+        //     panic!("Mint does not support NUT-XX");
+        // }
         // TODO: assert cairo[0] is the path of a json file
         let mut executable_path = sub_command_args.cairo[0].clone();
         let mut args = Vec::new();
