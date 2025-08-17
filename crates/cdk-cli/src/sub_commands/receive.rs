@@ -80,19 +80,12 @@ fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
         },
     };
 
-    println!("[cairo_prove fn] Prover input: {:?}", prover_input);
     let start = Instant::now();
     let cairo_proof = prove(prover_input, pcs_config);
     println!(
         "[cairo_prove fn] Cairo proof generated successfully in {} ms",
         start.elapsed().as_millis()
     );
-    let cairo_proof_str = serde_json::to_string(&cairo_proof);
-    println!(
-        "[cairo_prove fn] Cairo proof: {}",
-        cairo_proof_str.as_ref().unwrap()
-    );
-
     return serde_json::to_string(&cairo_proof).unwrap(); // returns a json serialized CairoProof
 }
 
