@@ -2,7 +2,6 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/11.md>
 
-use std::array::TryFromSliceError;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::{fmt, vec};
@@ -18,10 +17,10 @@ use thiserror::Error;
 use super::nut00::Witness;
 use super::nut01::PublicKey;
 use super::{Kind, Nut10Secret, Proof, Proofs, SecretKey};
+use crate::ensure_cdk;
 use crate::nuts::nut00::BlindedMessage;
 use crate::secret::Secret;
 use crate::util::{hex, unix_time};
-use crate::{ensure_cdk, NutXXConditions};
 
 pub mod serde_p2pk_witness;
 
@@ -73,9 +72,6 @@ pub enum Error {
     /// From hex error
     #[error(transparent)]
     HexError(#[from] hex::Error),
-    /// Slice Error
-    #[error(transparent)]
-    Slice(#[from] TryFromSliceError),
     /// Serde Json error
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
@@ -316,14 +312,6 @@ pub enum SpendingConditions {
         /// Additional Optional Spending [`Conditions`]
         conditions: Option<Conditions>,
     },
-    /// NUTXX Spending conditions
-    /// Defined in [NUTXX](https://github.com/cashubtc/nuts/blob/main/xx.md)
-    CairoConditions {
-        /// Blake2s program hash
-        data: [u8; 32],
-        /// Additional Optional Spending [`NutXXConditions`]
-        conditions: Option<NutXXConditions>,
-    },
 }
 
 impl SpendingConditions {
@@ -355,17 +343,11 @@ impl SpendingConditions {
         }
     }
 
-    /// New Cairo [SpendingConditions]
-    pub fn new_cairo(data: [u8; 32], conditions: Option<NutXXConditions>) -> Self {
-        Self::CairoConditions { data, conditions }
-    }
-
     /// Kind of [SpendingConditions]
     pub fn kind(&self) -> Kind {
         match self {
             Self::P2PKConditions { .. } => Kind::P2PK,
             Self::HTLCConditions { .. } => Kind::HTLC,
-            Self::CairoConditions { .. } => Kind::Cairo,
         }
     }
 
@@ -374,7 +356,6 @@ impl SpendingConditions {
         match self {
             Self::P2PKConditions { conditions, .. } => conditions.as_ref().and_then(|c| c.num_sigs),
             Self::HTLCConditions { conditions, .. } => conditions.as_ref().and_then(|c| c.num_sigs),
-            Self::CairoConditions { .. } => None,
         }
     }
 
@@ -390,7 +371,6 @@ impl SpendingConditions {
                 Some(pubkeys)
             }
             Self::HTLCConditions { conditions, .. } => conditions.clone().and_then(|c| c.pubkeys),
-            Self::CairoConditions { .. } => None,
         }
     }
 
@@ -399,7 +379,6 @@ impl SpendingConditions {
         match self {
             Self::P2PKConditions { conditions, .. } => conditions.as_ref().and_then(|c| c.locktime),
             Self::HTLCConditions { conditions, .. } => conditions.as_ref().and_then(|c| c.locktime),
-            Self::CairoConditions { .. } => None,
         }
     }
 
@@ -412,16 +391,6 @@ impl SpendingConditions {
             Self::HTLCConditions { conditions, .. } => {
                 conditions.clone().and_then(|c| c.refund_keys)
             }
-            Self::CairoConditions { .. } => None,
-        }
-    }
-
-    /// Cairo program output hash
-    pub fn output(&self) -> Option<[u8; 32]> {
-        match self {
-            Self::P2PKConditions { .. } => None,
-            Self::HTLCConditions { .. } => None,
-            Self::CairoConditions { conditions, .. } => conditions.clone().and_then(|c| c.output),
         }
     }
 }
@@ -454,15 +423,6 @@ impl TryFrom<Nut10Secret> for SpendingConditions {
                     .tags()
                     .and_then(|t| t.clone().try_into().ok()),
             }),
-            Kind::Cairo => Ok(Self::CairoConditions {
-                data: hex::decode(secret.secret_data().data())?
-                    .as_slice()
-                    .try_into()?,
-                conditions: secret
-                    .secret_data()
-                    .tags()
-                    .and_then(|t| t.clone().try_into().ok()),
-            }),
         }
     }
 }
@@ -475,9 +435,6 @@ impl From<SpendingConditions> for super::nut10::Secret {
             }
             SpendingConditions::HTLCConditions { data, conditions } => {
                 super::nut10::Secret::new(Kind::HTLC, data.to_string(), conditions)
-            }
-            SpendingConditions::CairoConditions { data, conditions } => {
-                super::nut10::Secret::new(Kind::Cairo, hex::encode(data), conditions)
             }
         }
     }
@@ -573,7 +530,7 @@ impl TryFrom<Vec<Vec<String>>> for Conditions {
     fn try_from(tags: Vec<Vec<String>>) -> Result<Conditions, Self::Error> {
         let tags: HashMap<TagKind, Tag> = tags
             .into_iter()
-            .filter_map(|t| Tag::try_from(t).ok())
+            .map(|t| Tag::try_from(t).unwrap())
             .map(|t| (t.kind(), t))
             .collect();
 

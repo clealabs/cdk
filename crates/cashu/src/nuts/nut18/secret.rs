@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::nuts::nut10::Kind;
 use crate::nuts::{Nut10Secret, SpendingConditions};
-use crate::util::hex;
 
 /// Nut10Secret without nonce for payment requests
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,9 +57,6 @@ impl From<SpendingConditions> for Nut10SecretRequest {
             }
             SpendingConditions::HTLCConditions { data, conditions } => {
                 Self::new(Kind::HTLC, data.to_string(), conditions)
-            }
-            SpendingConditions::CairoConditions { data, conditions } => {
-                Self::new(Kind::Cairo, hex::encode(data), conditions)
             }
         }
     }

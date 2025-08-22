@@ -14,8 +14,8 @@ use cashu::amount::SplitTarget;
 use cashu::dhke::construct_proofs;
 use cashu::mint_url::MintUrl;
 use cashu::{
-    CurrencyUnit, Id, MeltRequest, NotificationPayload, NutXXConditions, PreMintSecrets,
-    ProofState, SecretKey, SpendingConditions, State, SwapRequest,
+    CurrencyUnit, Id, MeltRequest, NotificationPayload, PreMintSecrets, ProofState, SecretKey,
+    SpendingConditions, State, SwapRequest,
 };
 use cdk::mint::Mint;
 use cdk::nuts::nut00::ProofsMethods;
@@ -25,9 +25,6 @@ use cdk::wallet::{ReceiveOptions, SendMemo, SendOptions};
 use cdk::Amount;
 use cdk_fake_wallet::create_fake_invoice;
 use cdk_integration_tests::init_pure_tests::*;
-use serde::{self, Deserialize, Deserializer};
-use starknet_types_core::felt::Felt;
-use stwo_cairo_prover::stwo_prover::core::vcs::blake2_hash::Blake2sHasher;
 use tokio::time::sleep;
 
 /// Tests the token swap and send functionality:
@@ -497,184 +494,6 @@ pub async fn test_p2pk_swap() {
     for (i, key) in public_keys_to_listen.into_iter().enumerate() {
         let statuses = msgs.remove(&key).expect("some events");
         // Every input pk receives two state updates, as there are only two state transitions
-        assert_eq!(
-            statuses,
-            vec![State::Pending, State::Spent],
-            "failed to test key {:?} (pos {})",
-            key,
-            i,
-        );
-    }
-
-    assert!(listener.try_recv().is_err(), "no other event is happening");
-    assert!(msgs.is_empty(), "Only expected key events are received");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-pub async fn test_cairo_swap() {
-    #[derive(Deserialize)]
-    struct Executable {
-        program: Program,
-    }
-
-    #[derive(Deserialize)]
-    struct Program {
-        #[serde(deserialize_with = "deserialize_felt_vec")]
-        bytecode: Vec<Felt>,
-    }
-
-    fn deserialize_felt_vec<'de, D>(deserializer: D) -> Result<Vec<Felt>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_strings: Vec<String> = Vec::deserialize(deserializer)?;
-        hex_strings
-            .into_iter()
-            .map(|s| {
-                // This is a hack because `Felt::from_hex` doesn't work with negative numbers.
-                // This is ok because we only need to parse executables during testing and thus
-                // using cairo_lang_executable is not worth having an extra dependency
-                let is_negative = s.starts_with('-');
-                let normalized_hex = if is_negative {
-                    s.trim_start_matches('-').to_string()
-                } else {
-                    s.clone()
-                };
-                let felt = Felt::from_hex(&normalized_hex).unwrap();
-                let corrected_felt = if is_negative { -felt } else { felt };
-                Ok(corrected_felt)
-            })
-            .collect()
-    }
-
-    fn hash_array_felt(bytecode: &Vec<Felt>) -> [u8; 32] {
-        let mut hasher = Blake2sHasher::default();
-        for felt in bytecode {
-            for byte in felt.to_bytes_le().iter() {
-                hasher.update(&[*byte]);
-            }
-        }
-        hasher.finalize().into()
-    }
-
-    setup_tracing();
-
-    let mint_bob = create_and_start_test_mint()
-        .await
-        .expect("Failed to create test mint");
-    let wallet_alice = create_test_wallet_for_mint(mint_bob.clone())
-        .await
-        .expect("Failed to create test wallet");
-
-    // Alice gets 100 sats
-    fund_wallet(wallet_alice.clone(), 100, None)
-        .await
-        .expect("Failed to fund wallet");
-
-    let proofs = wallet_alice
-        .get_unspent_proofs()
-        .await
-        .expect("Could not get proofs");
-
-    let keyset_id: Id = get_keyset_id(&mint_bob).await;
-
-    // Hash the program bytecode
-    let executable_json = include_str!("../../cashu/src/nuts/nutxx/test/is_prime_executable.json"); // is_prime program
-    let executable: Executable = serde_json::from_str(executable_json).unwrap();
-    let program_hash = hash_array_felt(&executable.program.bytecode);
-
-    let output_condition = vec![Felt::from(1)]; // program output: true
-    let desired_program_output_hash = Some(NutXXConditions {
-        output: Some(hash_array_felt(&output_condition)),
-    });
-
-    let spending_conditions =
-        SpendingConditions::new_cairo(program_hash, desired_program_output_hash);
-
-    let pre_swap = PreMintSecrets::with_conditions(
-        keyset_id,
-        100.into(),
-        &SplitTarget::default(),
-        &spending_conditions,
-    )
-    .unwrap();
-    let swap_request = SwapRequest::new(proofs.clone(), pre_swap.blinded_messages());
-    let keys = mint_bob.pubkeys().keysets.first().cloned().unwrap().keys;
-    let post_swap = mint_bob.process_swap_request(swap_request).await.unwrap();
-
-    let mut proofs = construct_proofs(
-        post_swap.signatures,
-        pre_swap.rs(),
-        pre_swap.secrets(),
-        &keys,
-    )
-    .unwrap();
-
-    let pre_swap = PreMintSecrets::random(keyset_id, 100.into(), &SplitTarget::default()).unwrap();
-    let swap_request = SwapRequest::new(proofs.clone(), pre_swap.blinded_messages());
-
-    // Listen for status updates on all input proof pks
-    let public_keys_to_listen: Vec<_> = swap_request
-        .inputs()
-        .ys()
-        .unwrap()
-        .iter()
-        .map(|pk| pk.to_string())
-        .collect();
-    let mut listener = mint_bob
-        .pubsub_manager()
-        .try_subscribe::<IndexableParams>(
-            Params {
-                kind: cdk::nuts::nut17::Kind::ProofState,
-                filters: public_keys_to_listen.clone(),
-                id: "test".into(),
-            }
-            .into(),
-        )
-        .await
-        .expect("valid subscription");
-
-    // Processing the swap before providing the witness should throw an error
-    match mint_bob.process_swap_request(swap_request).await {
-        Ok(_) => panic!("Proofs spent without providing a cairo proof"),
-        Err(err) => match err {
-            cdk::Error::NUTXX(cdk::nuts::nutxx::Error::IncorrectWitnessKind) => (),
-            _ => {
-                println!("{:?}", err);
-                panic!("Wrong error returned");
-            }
-        },
-    }
-
-    // for now we're just doing a pre-generated proof using `cairo-prove`
-    // TODO: implement the actual cairo proof generation from the wallet
-    let cairo_proof: String =
-        include_str!("../../cashu/src/nuts/nutxx/test/is_prime_proof_7.json").to_string();
-    for proof in &mut proofs {
-        proof.add_cairo_proof(cairo_proof.clone());
-    }
-
-    let swap_request = SwapRequest::new(proofs.clone(), pre_swap.blinded_messages());
-    let attempt_swap = mint_bob.process_swap_request(swap_request).await;
-
-    assert!(attempt_swap.is_ok());
-    sleep(Duration::from_secs(1)).await;
-
-    let mut msgs = HashMap::new();
-    while let Ok((sub_id, msg)) = listener.try_recv() {
-        assert_eq!(sub_id, "test".into());
-        match msg {
-            NotificationPayload::ProofState(ProofState { y, state, .. }) => {
-                msgs.entry(y.to_string())
-                    .or_insert_with(Vec::new)
-                    .push(state);
-            }
-            _ => panic!("Wrong message received"),
-        }
-    }
-
-    for (i, key) in public_keys_to_listen.into_iter().enumerate() {
-        let statuses = msgs.remove(&key).expect("some events");
         assert_eq!(
             statuses,
             vec![State::Pending, State::Spent],

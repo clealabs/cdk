@@ -512,10 +512,6 @@ impl Wallet {
                 ),
                 None => (None, None, None, None),
             },
-            SpendingConditions::CairoConditions {
-                data: _,
-                conditions: _,
-            } => (None, None, None, None),
         };
 
         if refund_keys.is_some() && locktime.is_none() {

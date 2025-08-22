@@ -49,9 +49,7 @@
 
         # Toolchains
         # latest stable
-        # TODO: go back to stable version (stwo_cairo now uses nightly features)
-        # stable_toolchain = pkgs.rust-bin.stable."1.86.0".default.override {
-        stable_toolchain = pkgs.rust-bin.nightly."2025-04-06".default.override {
+        stable_toolchain = pkgs.rust-bin.stable."1.86.0".default.override {
           targets = [ "wasm32-unknown-unknown" ]; # wasm
           extensions = [ "rustfmt" "clippy" "rust-analyzer" ];
         };

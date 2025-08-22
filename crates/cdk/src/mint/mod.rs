@@ -434,9 +434,6 @@ impl Mint {
                         Kind::HTLC => {
                             proof.verify_htlc()?;
                         }
-                        Kind::Cairo => {
-                            proof.verify_cairo()?;
-                        }
                     }
                 }
                 Ok(())
