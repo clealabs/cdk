@@ -28,6 +28,7 @@ use crate::nuts::nut01::SecretKey;
 use crate::nuts::nut11::{serde_p2pk_witness, P2PKWitness};
 use crate::nuts::nut12::BlindSignatureDleq;
 use crate::nuts::nut14::{serde_htlc_witness, HTLCWitness};
+use crate::nuts::nutxx::{serde_cairo_witness, CairoWitness};
 use crate::nuts::{Id, ProofDleq};
 use crate::secret::Secret;
 use crate::Amount;
@@ -285,6 +286,9 @@ pub enum Witness {
     /// HTLC Witness
     #[serde(with = "serde_htlc_witness")]
     HTLCWitness(HTLCWitness),
+    /// Cairo Witness
+    #[serde(with = "serde_cairo_witness")]
+    CairoWitness(CairoWitness),
 }
 
 impl From<P2PKWitness> for Witness {
@@ -296,6 +300,12 @@ impl From<P2PKWitness> for Witness {
 impl From<HTLCWitness> for Witness {
     fn from(witness: HTLCWitness) -> Self {
         Self::HTLCWitness(witness)
+    }
+}
+
+impl From<CairoWitness> for Witness {
+    fn from(witness: CairoWitness) -> Self {
+        Self::CairoWitness(witness)
     }
 }
 
@@ -311,6 +321,7 @@ impl Witness {
                     sigs
                 });
             }
+            Self::CairoWitness(_cairo_witness) => {} // unused
         }
     }
 
@@ -319,6 +330,7 @@ impl Witness {
         match self {
             Self::P2PKWitness(witness) => Some(witness.signatures.clone()),
             Self::HTLCWitness(witness) => witness.signatures.clone(),
+            Self::CairoWitness(_witness) => None,
         }
     }
 
@@ -327,6 +339,7 @@ impl Witness {
         match self {
             Self::P2PKWitness(_witness) => None,
             Self::HTLCWitness(witness) => Some(witness.preimage.clone()),
+            Self::CairoWitness(_witness) => None,
         }
     }
 }
