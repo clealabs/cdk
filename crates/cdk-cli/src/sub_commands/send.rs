@@ -247,7 +247,9 @@ pub async fn send(
                     }
                     if output_conditions.len() != narg_output {
                         return Err(anyhow!(
-                            "Number of outputs does not match the expected output length"
+                            "Number of outputs does not match the specified output length: {} != {}",
+                            output_conditions.len(),
+                            narg_output
                         ));
                     }
 
@@ -308,11 +310,12 @@ pub async fn send(
             }
         },
 
-        _ => None, // TODO : gracefully handle this case
+        _ => None,
     };
 
-    /// maybe we could have a builder such that it returns an error if more than one condition is set.. because as it seems with the current code
-    /// we can't have both and htlc condition and a p2pk condition
+    // maybe we could have a builder such that it returns an error if more than one condition is set.. because as it seems with the current code
+    // we can't have both and htlc condition and a p2pk condition
+
     let send_kind = match (sub_command_args.offline, sub_command_args.tolerance) {
         (true, Some(amount)) => SendKind::OfflineTolerance(Amount::from(amount)),
         (true, None) => SendKind::OfflineExact,

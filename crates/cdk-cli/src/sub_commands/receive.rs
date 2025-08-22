@@ -42,32 +42,31 @@ pub struct ReceiveSubCommand {
     /// Preimage
     #[arg(short, long,  action = clap::ArgAction::Append)]
     preimage: Vec<String>,
-    /// Path to Cairo executable JSON file + program arguments
-    /// Example: --cairo ./program.json 1 1
-    /// accept multiple values after the flag: --cairo <path> <out_len> <out1> <out2> ...
-    #[arg(long, num_args = 1..)]
+    /// Cairo program: <program.json> <nargs> <arg1> [arg2...]
+    #[arg(
+        long,
+        num_args = 1..,
+        value_terminator = "--",
+        value_names = ["PROGRAM", "NARGS", "ARGS"]
+    )]
     cairo: Vec<String>,
 }
 
-fn cairo_prove(executable_path: String, args: Vec<String>) -> String {
-    println!(
-        "[cairo_prove fn] Executable path: {}, args: {}",
-        executable_path,
-        args.join(" ")
-    );
-
+fn cairo_prove(executable_path: &Path, args: Vec<String>) -> String {
     let executable = serde_json::from_reader(
         std::fs::File::open(executable_path).expect("Failed to open Cairo executable file"),
     )
     .expect("Failed to parse Cairo executable JSON");
+
     let args: Vec<Arg> = args
         .iter()
         .map(|a| {
-            Felt::from_str(a)
+            Felt::from_hex(a)
                 .expect("Invalid argument for Cairo proof")
                 .into()
         })
         .collect();
+
     let runner = execute(executable, args);
     let prover_input = prover_input_from_runner(&runner);
 
@@ -125,35 +124,38 @@ pub async fn receive(
             // either check that they all have the same mint info,
             // or somehow find a way to generate proofs for each wallet
         }
-        //let mint_info = wallets[0].get_mint_info().await?.unwrap();
-        // if !mint_info.nuts.nutxx.supported {
-        //     panic!("Mint does not support NUT-XX");
-        // }
-        // TODO: assert cairo[0] is the path of a json file
-        let mut executable_path = sub_command_args.cairo[0].clone();
-        let mut args = Vec::new();
-        for arg in sub_command_args.cairo[1..].iter() {
-            // check if arg is a file path
-            if arg.ends_with(".json") {
-                // check if the file exists
-                if !std::path::Path::new(&executable_path).exists() {
-                    panic!("Cairo executable file not found: {}", executable_path);
-                }
-                // add arg to current_args
-                cairo_proofs_json.push(cairo_prove(executable_path.clone(), args.clone()));
-                executable_path = arg.clone();
-                args = Vec::new();
-            } else {
-                // try to parse arg as a Felt
-                // TODO: if it fails, throw error
-                if let Err(_) = Felt::from_str(arg) {
-                    panic!("Invalid argument for Cairo proof: {}", arg);
-                }
-                // add arg to current_args
-                args.push(arg.clone());
-            }
+
+        if sub_command_args.cairo.len() < 2 {
+            return Err(anyhow!(
+                "Cairo command requires at least 2 arguments: <executable_program.json> <nargs>"
+            ));
         }
-        cairo_proofs_json.push(cairo_prove(executable_path.clone(), args.clone()));
+
+        let exec_path = std::path::Path::new(&sub_command_args.cairo[0]);
+
+        if !exec_path.exists() {
+            return Err(anyhow!(
+                "Cairo executable file not found: {}",
+                exec_path.display()
+            ));
+        }
+
+        let narg_inputs = sub_command_args.cairo[1]
+            .parse::<usize>()
+            .map_err(|_| anyhow!("Invalid output length argument"))?;
+
+        let expected_args_len = 2 + narg_inputs;
+
+        let mut args = Vec::new();
+
+        for arg in &sub_command_args.cairo[2..2 + narg_inputs] {
+            if Felt::from_str(arg).is_err() {
+                return Err(anyhow!("Could not parse program input: {}", arg));
+            }
+            args.push(arg.clone());
+        }
+
+        cairo_proofs_json.push(cairo_prove(exec_path, args.clone()));
     }
 
     let amount = match &sub_command_args.token {
