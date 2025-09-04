@@ -1,9 +1,10 @@
 [info]
-url = "https://mint.thesimplekid.dev/"
-listen_host = "127.0.0.1"
-listen_port = 8085
-mnemonic = ""
-# input_fee_ppk = 0
+url = "http://localhost:3338"
+listen_host = "0.0.0.0"
+listen_port = 3338
+mnemonic = "jealous able able juice flower current garbage tower solid visual cement sausage figure car theme"
+# Optional passphrase for mnemonic
+input_fee_ppk = 0
 # enable_swagger_ui = false
 
 [mint_management_rpc]
@@ -44,15 +45,15 @@ tti = 60
 [ln]
 # Required ln backend `cln`, `lnd`, `fakewallet`, 'lnbits'
 ln_backend = "fakewallet"
-# min_mint=1
-# max_mint=500000
-# min_melt=1
-# max_melt=500000
+min_mint=1
+max_mint=500000
+min_melt=1
+max_melt=500000
 
 [cln]
 rpc_path = ""
-fee_percent = 0.04
-reserve_fee_min = 4
+fee_percent = 0
+reserve_fee_min = 0
 
 # [lnbits]
 # admin_api_key = ""
@@ -68,12 +69,12 @@ reserve_fee_min = 4
 # fee_percent=0.04
 # reserve_fee_min=4
 
-# [fake_wallet]
-# supported_units = ["sat"]
-# fee_percent = 0.02
-# reserve_fee_min = 1
-# min_delay_time = 1
-# max_delay_time = 3
+[fake_wallet]
+supported_units = ["sat"]
+fee_percent = 0
+reserve_fee_min = 1
+min_delay_time = 0
+max_delay_time = 0
 
 # [grpc_processor]
 # gRPC Payment Processor configuration
@@ -96,6 +97,7 @@ reserve_fee_min = 4
 
 
 [nutxx]
+supported = true
 # If omitted or true, NUT-XX is advertised. Set to false to disable.
 # enabled = true
 
@@ -105,6 +107,6 @@ version = "0.1.1"
 
 [nutxx.optional_features.bootloader]
 # Advertise bootloader feature (defaults to false if omitted)
-# supported = false
+supported = false
 # version = "0.14.0"
 # hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
